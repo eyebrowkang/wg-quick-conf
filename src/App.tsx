@@ -15,8 +15,14 @@ function App() {
   const [preSharedKey, setPreSharedKey] = useState<string>('');
 
   useEffect(() => {
-    generateKeyPair();
-    generatePreSharedKey();
+    loadWgCtrl()
+      .then(() => {
+        generateKeyPair();
+        generatePreSharedKey();
+      })
+      .catch((err) => {
+        console.error(err);
+      });
   }, []);
 
   const generateKeyPair = () => {
@@ -135,6 +141,29 @@ function KeyItem({ label, content }: { label: string; content: string }) {
       </div>
     </div>
   );
+}
+
+declare class Go {
+  importObject: WebAssembly.Imports;
+
+  run(instance: WebAssembly.Instance): Promise<void>;
+}
+
+async function loadWgCtrl(): Promise<void> {
+  const go = new Go();
+  const WASM_URL = '/main.wasm';
+
+  try {
+    const result = await WebAssembly.instantiateStreaming(
+      await fetch(WASM_URL),
+      go.importObject,
+    );
+    void go.run(result.instance);
+  } catch (err) {
+    return Promise.reject(err);
+  }
+
+  return Promise.resolve();
 }
 
 export default App;
