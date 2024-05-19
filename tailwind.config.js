@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+const plugin = require('tailwindcss/plugin');
+
 module.exports = {
   darkMode: ['class'],
   content: [
@@ -74,5 +76,21 @@ module.exports = {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [
+    require('tailwindcss-animate'),
+    plugin(function ({ addUtilities }) {
+      addUtilities(
+        {
+          '.no-scrollbar': {
+            '-ms-overflow-style': 'none' /* IE 和 Edge */,
+            'scrollbar-width': 'none' /* Firefox */,
+          },
+          '.no-scrollbar::-webkit-scrollbar': {
+            display: 'none' /* Chrome, Safari, Opera */,
+          },
+        },
+        ['responsive', 'hover'],
+      );
+    }),
+  ],
 };

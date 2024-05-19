@@ -1,14 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { Link, Route, Switch } from 'wouter';
-import { ClipboardIcon, CheckIcon } from 'lucide-react';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip.tsx';
 import { Card, CardContent, CardHeader } from '@/components/ui/card.tsx';
+import { KeyItem } from '@/components/keyItem.tsx';
+import { NotFoundPage } from '@/pages/404.tsx';
 
 function App() {
   const [keyPair, setKeyPair] = useState<string[]>([]);
@@ -34,7 +29,7 @@ function App() {
 
   return (
     <>
-      <div className="flex items-center w-full h-14 bg-neutral-200 shadow text-slate-100 px-4">
+      <div className="flex h-14 w-full items-center bg-neutral-200 px-4 text-slate-100 shadow">
         <Link href="/">
           <img
             className="text-black"
@@ -54,7 +49,7 @@ function App() {
       </div>
       <Switch>
         <Route path="/">
-          <div className="flex flex-col items-center mt-20 gap-20">
+          <div className="mt-20 flex flex-col items-center gap-20 px-4">
             <Card>
               <CardHeader>
                 <Button onClick={generateKeyPair}>Generate Key Pair</Button>
@@ -77,69 +72,10 @@ function App() {
           </div>
         </Route>
         <Route>
-          <div className="flex flex-1 items-center">
-            <div className="m-auto flex items-center">
-              <div className="border-r-2 border-slate-900 mr-4 pr-4 text-2xl">
-                404
-              </div>
-              <div>This page could not be found.</div>
-            </div>
-          </div>
+          <NotFoundPage />
         </Route>
       </Switch>
     </>
-  );
-}
-
-function KeyItem({ label, content }: { label: string; content: string }) {
-  const [hasCopied, setHasCopied] = useState(false);
-
-  const copyContent = () => {
-    navigator.clipboard
-      .writeText(content)
-      .then(() => {
-        setHasCopied(true);
-        setTimeout(() => {
-          setHasCopied(false);
-        }, 1200);
-      })
-      .catch((err) => console.error('Could not copy text: ', err));
-  };
-
-  return (
-    <div>
-      <div className="flex items-center">
-        <div>{label}</div>
-      </div>
-      <div className="relative flex items-center">
-        <pre className="rounded-lg border bg-slate-800 py-2 pl-4 pr-10 w-fit">
-          <code className="bg-transparent text-slate-100 font-mono text-sm">
-            {content}
-          </code>
-        </pre>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={copyContent}
-                variant="ghost"
-                size="icon"
-                className="text-slate-100 h-6 w-6 ml-auto absolute right-2 hover:bg-slate-700 hover:text-slate-100"
-              >
-                {hasCopied ? (
-                  <CheckIcon size={16} />
-                ) : (
-                  <ClipboardIcon size={16} />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Copy Content</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-    </div>
   );
 }
 
