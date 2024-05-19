@@ -4,6 +4,9 @@ import { Link, Route, Switch } from 'wouter';
 import { Card, CardContent, CardHeader } from '@/components/ui/card.tsx';
 import { KeyItem } from '@/components/keyItem.tsx';
 import { NotFoundPage } from '@/pages/404.tsx';
+import { QuickConfigPage } from '@/pages/config.tsx';
+import { ConfigTransform } from '@/pages/transform.tsx';
+import { BaseLayout } from '@/layouts/base.tsx';
 
 function App() {
   const [keyPair, setKeyPair] = useState<string[]>([]);
@@ -29,7 +32,7 @@ function App() {
 
   return (
     <>
-      <div className="flex h-14 w-full items-center bg-neutral-200 px-4 text-slate-100 shadow">
+      <div className="fixed flex h-14 w-full items-center bg-neutral-200 px-4 text-slate-100 shadow">
         <Link href="/">
           <img
             className="text-black"
@@ -49,27 +52,37 @@ function App() {
       </div>
       <Switch>
         <Route path="/">
-          <div className="mt-20 flex flex-col items-center gap-20 px-4">
-            <Card>
-              <CardHeader>
-                <Button onClick={generateKeyPair}>Generate Key Pair</Button>
-              </CardHeader>
-              <CardContent>
-                <KeyItem label="Private Key" content={keyPair[0]} />
-                <KeyItem label="Public Key" content={keyPair[1]} />
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <Button onClick={generatePreSharedKey}>
-                  Generate PreShared Key
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <KeyItem label="PreShared Key" content={preSharedKey} />
-              </CardContent>
-            </Card>
-          </div>
+          <BaseLayout>
+            <div className="flex flex-col items-center gap-20">
+              <Card>
+                <CardHeader>
+                  <Button variant="outline" onClick={generateKeyPair}>
+                    Generate Key Pair
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  <KeyItem label="Private Key" content={keyPair[0]} />
+                  <KeyItem label="Public Key" content={keyPair[1]} />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <Button variant="outline" onClick={generatePreSharedKey}>
+                    Generate PreShared Key
+                  </Button>
+                </CardHeader>
+                <CardContent>
+                  <KeyItem label="PreShared Key" content={preSharedKey} />
+                </CardContent>
+              </Card>
+            </div>
+          </BaseLayout>
+        </Route>
+        <Route path="/config">
+          <QuickConfigPage />
+        </Route>
+        <Route path="/transform">
+          <ConfigTransform />
         </Route>
         <Route>
           <NotFoundPage />
