@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/tooltip.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { CheckIcon, ClipboardIcon } from 'lucide-react';
+import { useToast } from './ui/use-toast';
 
 export function KeyItem({
   label,
@@ -15,6 +16,7 @@ export function KeyItem({
   label: string;
   content: string;
 }) {
+  const { toast } = useToast();
   const [hasCopied, setHasCopied] = useState(false);
 
   const copyContent = () => {
@@ -26,7 +28,14 @@ export function KeyItem({
           setHasCopied(false);
         }, 1000);
       })
-      .catch((err) => console.error('Could not copy text: ', err));
+      .catch((err) => {
+        console.error(err);
+        toast({
+          title: 'Copy Error!',
+          description: 'Could not copy text.',
+          variant: 'destructive',
+        });
+      });
   };
 
   return (
