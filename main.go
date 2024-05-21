@@ -23,9 +23,20 @@ func genPreKey(this js.Value, args []js.Value) any {
 }
 
 func genKeyPair(this js.Value, args []js.Value) any {
+	if len(args) > 0 {
+		key, err := wgtypes.ParseKey(args[0].String())
+		if err != nil {
+			return js.ValueOf(
+				map[string]any{
+					"error": err.Error(),
+				},
+			)
+		}
+		return js.ValueOf([]any{key.String(), key.PublicKey().String()})
+	}
+
 	privateKey, _ := wgtypes.GeneratePrivateKey()
 	publicKey := privateKey.PublicKey()
 
 	return js.ValueOf([]any{privateKey.String(), publicKey.String()})
 }
-
