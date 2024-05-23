@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button.tsx';
 import { Label } from '@/components/ui/label.tsx';
 import { Input } from '@/components/ui/input.tsx';
-import { useMemo, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import { BaseLayout } from '@/layouts/base.tsx';
 import { GITHUB_REPO } from '@/constants/link';
 import { createZipAndDownload, getRandomPort } from '@/lib/utils';
@@ -22,6 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SquareArrowOutUpRight } from 'lucide-react';
+import { isIP } from 'is-ip';
+import isCIDR from 'is-cidr';
+import { Textarea } from '@/components/ui/textarea';
+import { batchIncrementIP, getCidrAddress } from '@/lib/ip';
+import { generateWgConf } from '@/lib/wg';
 
 export interface PeerSection {
   publicKey: string;
@@ -29,7 +35,7 @@ export interface PeerSection {
   allowedIPs: string;
   persistentKeepalive?: number; // between 1 and 65535 inclusive
   endpoint?: string;
-  reserved?: string[];
+  reserved?: string;
 }
 
 export interface WireGuardConfig {
@@ -40,9 +46,9 @@ export interface WireGuardConfig {
   // handled by wg-quick
   address: string; // ip or cidr, e.g. 10.0.0.1/24, fd00::1/64
   dns?: string;
-  mtu?: string;
+  mtu?: number;
   table?: string;
-  saveConfig?: boolean;
+  saveConfig?: string;
   preUp?: string;
   postUp?: string;
   preDown?: string;
@@ -51,29 +57,25 @@ export interface WireGuardConfig {
   peers: PeerSection[];
 }
 
-const defaultPeerConfig: PeerSection = {
-  publicKey: '',
-  presharedKey: '',
-  allowedIPs: '0.0.0.0/0, ::/0',
-  persistentKeepalive: 25,
-  endpoint: '',
-  reserved: [],
-};
+type ConfigForm = Partial<WireGuardConfig & PeerSection> & { quantity: number };
 
-const defaultInterfaceConfig: WireGuardConfig = {
-  privateKey: '',
-  listenPort: getRandomPort(),
-  fwMark: '',
+const defaultForm: ConfigForm = {
   address: '10.0.0.1/24',
   dns: '',
-  mtu: '',
-  table: '',
-  saveConfig: false,
+  listenPort: getRandomPort(),
+  mtu: 0,
+  saveConfig: '',
+  allowedIPs: '0.0.0.0/0, ::/0',
+  endpoint: '',
+  persistentKeepalive: 25,
+  reserved: '',
+  quantity: 2,
   preUp: '',
   postUp: '',
   preDown: '',
   postDown: '',
-  peers: [defaultPeerConfig],
+  table: '',
+  fwMark: '',
 };
 
 export function QuickConfigPage() {
@@ -81,59 +83,179 @@ export function QuickConfigPage() {
   const { toast } = useToast();
 
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [form, setForm] = useState<ConfigForm>(defaultForm);
+  const [formErr, setFormErr] = useState<Record<string, string>>({});
+  const [peerConfList, setPeerConfList] = useState<WireGuardConfig[]>([]);
 
-  const [quantity, setQuantity] = useState(2);
-
-  const [form, setForm] = useState({
-    address: '10.0.0.1/24',
-    listenPort: '51820',
-    dns: '',
-    mtu: '',
-    peerQuantity: '2',
-    allowedIPs: '0.0.0.0/0, ::/0',
-    endpoint: '',
-  });
-  const [keyPairList, setKeyPairList] = useState<string[][]>([]);
-  const confList = useMemo(() => {
-    return keyPairList.map(([privateKey, publicKey], index) => {
-      let interfaceSection = `[Interface]\nPrivateKey = ${privateKey}\nAddress = ${form.address}\nListenPort = ${form.listenPort}\n`;
-      if (form.dns) {
-        interfaceSection += `DNS = ${form.dns}\n`;
+  const validateForm: () => boolean = () => {
+    setFormErr({});
+    // >> address required <<
+    const address = form.address
+      ?.split(',')
+      .map((a) => a.trim())
+      .filter(Boolean);
+    if (!address?.length) {
+      setFormErr((prev) => ({ ...prev, address: 'Address is required' }));
+      return false;
+    }
+    if (
+      !address.every((a) => {
+        if (isIP(a)) return true;
+        if (isCIDR(a)) return true;
+        return false;
+      })
+    ) {
+      setFormErr((prev) => ({ ...prev, address: 'Invalid address' }));
+      return false;
+    }
+    // >> dns <<
+    if (form.dns) {
+      const dns = form.dns
+        .split(',')
+        .map((d) => d.trim())
+        .filter(Boolean);
+      if (dns.some((d) => !isIP(d))) {
+        setFormErr((prev) => ({ ...prev, dns: 'Invalid DNS' }));
+        return false;
       }
-      if (form.mtu) {
-        interfaceSection += `MTU = ${form.mtu}\n`;
+    }
+    // >> listenPort <<
+    if (form.listenPort && (form.listenPort < 1 || form.listenPort > 65535)) {
+      setFormErr((prev) => ({ ...prev, listenPort: 'Invalid port' }));
+      return false;
+    }
+    // >> mtu <<
+    // simply check if it is a positive integer
+    if (form.mtu && (Number.isNaN(form.mtu) || form.mtu < 1)) {
+      setFormErr((prev) => ({ ...prev, mtu: 'Invalid MTU' }));
+      return false;
+    }
+    // >> saveConfig <<
+    if (form.saveConfig) {
+      if (form.saveConfig !== 'true' && form.saveConfig !== 'false') {
+        setFormErr((prev) => ({ ...prev, saveConfig: 'Invalid saveConfig' }));
+        return false;
       }
+    }
+    // >> allowedIPs required <<
+    const allowedIPs = form.allowedIPs
+      ?.split(',')
+      .map((a) => a.trim())
+      .filter(Boolean);
+    if (!allowedIPs?.length) {
+      setFormErr((prev) => ({ ...prev, allowedIPs: 'AllowedIPs is required' }));
+      return false;
+    }
+    if (allowedIPs.some((cidr) => !isCIDR(cidr))) {
+      setFormErr((prev) => ({ ...prev, allowedIPs: 'Invalid AllowedIPs' }));
+      return false;
+    }
+    // >> endpoint required <<
+    if (!form.endpoint) {
+      setFormErr((prev) => ({ ...prev, endpoint: 'Endpoint is required' }));
+      return false;
+    }
+    const endpoint = form.endpoint.split(':');
+    if (endpoint.length > 2) {
+      setFormErr((prev) => ({ ...prev, endpoint: 'Invalid endpoint' }));
+      return false;
+    }
+    if (endpoint.length === 1) {
+      form.endpoint = `${endpoint[0].trim()}:${form.listenPort}`;
+    }
+    // >> persistentKeepalive <<
+    if (
+      form.persistentKeepalive &&
+      (form.persistentKeepalive < 1 || form.persistentKeepalive > 65535)
+    ) {
+      setFormErr((prev) => ({
+        ...prev,
+        persistentKeepalive: 'Invalid persistentKeepalive',
+      }));
+      return false;
+    }
+    // >> reserved << no need to validate
+    // >> quantity <<
+    if (form.quantity && (Number.isNaN(form.quantity) || form.quantity < 1)) {
+      setFormErr((prev) => ({ ...prev, quantity: 'Invalid quantity' }));
+      return false;
+    }
+    // no validation for advanced options
 
-      let peerSection: string;
-      if (index === 0) {
-        peerSection = keyPairList
-          .filter(([_, pub]) => pub !== publicKey)
-          .map(([_, pubKey]) => {
-            return `[Peer]\nPublicKey = ${pubKey}\nAllowedIPs = ${form.allowedIPs}\n`;
-          })
-          .join('\n');
-      } else {
-        peerSection = `[Peer]\nPublicKey = ${keyPairList[0][1]}\nAllowedIPs = ${form.allowedIPs}\nEndpoint = ${form.endpoint}:${form.listenPort}\n`;
-      }
-
-      return interfaceSection + '\n' + peerSection;
-    });
-  }, [form, keyPairList]);
+    return true;
+  };
 
   const generateConfig = () => {
-    const list: string[][] = [];
-    for (let i = 0; i < quantity; i++) {
-      list.push(window.wgCtrl.genKeyPair());
+    if (!validateForm()) return;
+
+    const keyPairList: string[][] = [];
+    const addressList: string[] = [];
+    for (let i = 0; i < form.quantity; i++) {
+      keyPairList.push(window.wgCtrl.genKeyPair());
+      try {
+        const address = batchIncrementIP(form.address!, i);
+        addressList.push(address);
+      } catch (err) {
+        toast({
+          title: 'IP Address increment Error!',
+          description: 'Please change Address or Peer Quantity.',
+          variant: 'destructive',
+        });
+        throw err;
+      }
     }
-    setKeyPairList(list);
+
+    const wgConfList: WireGuardConfig[] = [];
+    for (let j = 0; j < form.quantity; j++) {
+      let wgConf: WireGuardConfig;
+      if (j === 0) {
+        wgConf = {
+          privateKey: keyPairList[0][0],
+          address: addressList[0],
+          listenPort: form.listenPort,
+          dns: form.dns,
+          mtu: form.mtu,
+          saveConfig: form.saveConfig,
+          preUp: form.preUp,
+          postUp: form.postUp,
+          preDown: form.preDown,
+          postDown: form.postDown,
+          table: form.table,
+          fwMark: form.fwMark,
+          peers: keyPairList.slice(1).map(([_, publicKey], index) => ({
+            publicKey,
+            allowedIPs: getCidrAddress(addressList[index + 1]),
+          })),
+        };
+      } else {
+        wgConf = {
+          privateKey: keyPairList[j][0],
+          address: addressList[j],
+          dns: form.dns,
+          mtu: form.mtu,
+          peers: keyPairList.slice(0, 1).map(([_, publicKey]) => {
+            return {
+              publicKey,
+              allowedIPs: form.allowedIPs ?? '',
+              endpoint: form.endpoint,
+              persistentKeepalive: form.persistentKeepalive,
+              reserved: form.reserved,
+            };
+          }),
+        };
+      }
+
+      wgConfList.push(wgConf);
+    }
+    setPeerConfList(wgConfList);
   };
 
   const downloadZip = () => {
     createZipAndDownload(
-      confList.map((config, index) => {
+      peerConfList.map((config, index) => {
         return {
-          name: `peer${index}.conf`,
-          content: config,
+          name: `wg${index}.conf`,
+          content: generateWgConf(config),
         };
       }),
       'wg_conf.zip',
@@ -147,6 +269,11 @@ export function QuickConfigPage() {
     });
   };
 
+  const resetForm = () => {
+    setForm(defaultForm);
+    setFormErr({});
+  };
+
   return (
     <BaseLayout>
       <div className="flex flex-col items-center gap-8">
@@ -156,12 +283,13 @@ export function QuickConfigPage() {
             <CardDescription>
               Pure client-side operation, without any API requests. see{' '}
               <a
-                className="underline"
+                className="inline-flex items-center gap-0.5 font-semibold text-secondary-foreground transition-colors hover:text-inherit"
                 href={GITHUB_REPO}
                 target="_blank"
                 rel="noreferrer"
               >
                 source code
+                <SquareArrowOutUpRight size={13} />
               </a>
             </CardDescription>
           </CardHeader>
@@ -181,8 +309,13 @@ export function QuickConfigPage() {
                   }}
                   className="base-input"
                   id={`address-${id}`}
-                  placeholder="Address"
+                  placeholder="Comma separated IP or CIDR"
                 />
+                {formErr.address ? (
+                  <span className="text-xs text-red-500">
+                    {formErr.address}
+                  </span>
+                ) : null}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor={`dns-${id}`}>DNS</Label>
@@ -195,23 +328,32 @@ export function QuickConfigPage() {
                   id={`dns-${id}`}
                   placeholder="DNS"
                 />
+                {formErr.dns ? (
+                  <span className="text-xs text-red-500">{formErr.dns}</span>
+                ) : null}
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="grid gap-2">
                 <Label htmlFor={`listen-port-${id}`}>ListenPort</Label>
                 <Input
+                  type="number"
                   value={form.listenPort}
                   onChange={(e) => {
                     setForm((prev) => ({
                       ...prev,
-                      listenPort: e.target.value,
+                      listenPort: Number(e.target.value),
                     }));
                   }}
                   className="base-input"
                   id={`listen-port-${id}`}
                   placeholder="ListenPort"
                 />
+                {formErr.listenPort ? (
+                  <span className="text-xs text-red-500">
+                    {formErr.listenPort}
+                  </span>
+                ) : null}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor={`mtu-${id}`}>MTU</Label>
@@ -220,30 +362,55 @@ export function QuickConfigPage() {
                   onChange={(e) => {
                     setForm((prev) => ({
                       ...prev,
-                      mtu: e.target.value,
+                      mtu: Number(e.target.value),
                     }));
                   }}
+                  type="number"
                   className="base-input"
                   id={`mtu-${id}`}
                   placeholder="MTU"
                 />
+                {formErr.mtu ? (
+                  <span className="text-xs text-red-500">{formErr.mtu}</span>
+                ) : null}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor={`save-config-${id}`}>SaveConfig</Label>
-                <Select defaultValue="no">
-                  <SelectTrigger className="base-select">
-                    <SelectValue placeholder="SaveConfig" />
+                <Select
+                  value={form.saveConfig}
+                  onValueChange={(value) => {
+                    setForm((prev) => ({
+                      ...prev,
+                      saveConfig: value,
+                    }));
+                  }}
+                >
+                  <SelectTrigger
+                    className="base-select"
+                    id={`save-config-${id}`}
+                  >
+                    <SelectValue placeholder="True or False" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="yes">Yes</SelectItem>
-                    <SelectItem value="no">No</SelectItem>
+                    <SelectItem value="true">True</SelectItem>
+                    <SelectItem value="false">False</SelectItem>
                   </SelectContent>
                 </Select>
+                {formErr.saveConfig ? (
+                  <span className="text-xs text-red-500">
+                    {formErr.saveConfig}
+                  </span>
+                ) : null}
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="grid gap-2">
-                <Label htmlFor={`allowed-ips-${id}`}>AllowedIPs</Label>
+                <Label
+                  className="after:ml-0.5 after:text-red-500 after:content-['*']"
+                  htmlFor={`allowed-ips-${id}`}
+                >
+                  AllowedIPs
+                </Label>
                 <Input
                   value={form.allowedIPs}
                   onChange={(e) => {
@@ -254,21 +421,39 @@ export function QuickConfigPage() {
                   }}
                   className="base-input"
                   id={`allowed-ips-${id}`}
-                  placeholder="AllowedIPs"
+                  placeholder="Comma separated list of IP (v4 or v6) addresses with CIDR masks"
                 />
+                {formErr.allowedIPs ? (
+                  <span className="text-xs text-red-500">
+                    {formErr.allowedIPs}
+                  </span>
+                ) : null}
               </div>
               <div className="grid gap-2">
-                <Label htmlFor={`endpoint-${id}`}>Endpoint</Label>
+                <Label
+                  className="after:ml-0.5 after:text-red-500 after:content-['*']"
+                  htmlFor={`endpoint-${id}`}
+                >
+                  Endpoint
+                </Label>
                 <Input
                   autoFocus
                   value={form.endpoint}
                   onChange={(e) => {
-                    setForm((prev) => ({ ...prev, endpoint: e.target.value }));
+                    setForm((prev) => ({
+                      ...prev,
+                      endpoint: e.target.value,
+                    }));
                   }}
                   className="base-input"
                   id={`endpoint-${id}`}
                   placeholder="Change it to your server host"
                 />
+                {formErr.endpoint ? (
+                  <span className="text-xs text-red-500">
+                    {formErr.endpoint}
+                  </span>
+                ) : null}
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
@@ -277,21 +462,37 @@ export function QuickConfigPage() {
                   PersistentKeepalive
                 </Label>
                 <Input
-                  value={form.dns}
+                  value={form.persistentKeepalive}
                   onChange={(e) => {
-                    setForm((prev) => ({ ...prev, dns: e.target.value }));
+                    setForm((prev) => ({
+                      ...prev,
+                      persistentKeepalive: Number(e.target.value),
+                    }));
                   }}
+                  type="number"
                   className="base-input"
                   id={`persistent-keepalive-${id}`}
                   placeholder="PersistentKeepalive"
                 />
+                {formErr.persistentKeepalive ? (
+                  <span className="text-xs text-red-500">
+                    {formErr.persistentKeepalive}
+                  </span>
+                ) : null}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor={`reserved-${id}`}>Reserved</Label>
                 <Input
                   className="base-input"
                   id={`reserved-${id}`}
-                  placeholder="comma separated value"
+                  placeholder="Comma separated value"
+                  value={form.reserved}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      reserved: e.target.value,
+                    }))
+                  }
                 />
               </div>
               <div className="grid gap-2">
@@ -301,43 +502,72 @@ export function QuickConfigPage() {
                   className="base-input"
                   id={`peer-quantity-${id}`}
                   placeholder="Peer Quantity"
-                  value={quantity}
-                  onChange={(e) => setQuantity(Number(e.target.value))}
+                  value={form.quantity}
+                  onChange={(e) => {
+                    setForm((prev) => ({
+                      ...prev,
+                      quantity: Number(e.target.value),
+                    }));
+                  }}
                 />
+                {formErr.quantity ? (
+                  <span className="text-xs text-red-500">
+                    {formErr.quantity}
+                  </span>
+                ) : null}
               </div>
             </div>
             {showAdvanced ? (
               <>
                 <div className="grid gap-2">
                   <Label htmlFor={`pre-up-${id}`}>PreUp</Label>
-                  <Input
-                    className="base-input"
+                  <Textarea
+                    className="base-input font-mono"
                     id={`pre-up-${id}`}
                     placeholder="PreUp"
+                    value={form.preUp}
+                    onChange={(e) => {
+                      setForm((prev) => ({ ...prev, preUp: e.target.value }));
+                    }}
                   />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor={`post-up-${id}`}>PostUp</Label>
-                  <Input
-                    className="base-input"
+                  <Textarea
+                    className="base-input font-mono"
                     id={`post-up-${id}`}
                     placeholder="PostUp"
+                    value={form.postUp}
+                    onChange={(e) => {
+                      setForm((prev) => ({ ...prev, postUp: e.target.value }));
+                    }}
                   />
-                </div>{' '}
+                </div>
                 <div className="grid gap-2">
                   <Label htmlFor={`pre-down-${id}`}>PreDown</Label>
-                  <Input
-                    className="base-input"
+                  <Textarea
+                    className="base-input font-mono"
                     id={`pre-down-${id}`}
                     placeholder="PreDown"
+                    value={form.preDown}
+                    onChange={(e) => {
+                      setForm((prev) => ({ ...prev, preDown: e.target.value }));
+                    }}
                   />
-                </div>{' '}
+                </div>
                 <div className="grid gap-2">
                   <Label htmlFor={`post-down{id}`}>PostDown</Label>
-                  <Input
-                    className="base-input"
+                  <Textarea
+                    className="base-input font-mono"
                     id={`post-down-${id}`}
                     placeholder="PostDown"
+                    value={form.postDown}
+                    onChange={(e) => {
+                      setForm((prev) => ({
+                        ...prev,
+                        postDown: e.target.value,
+                      }));
+                    }}
                   />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -347,6 +577,10 @@ export function QuickConfigPage() {
                       className="base-input"
                       id={`table-${id}`}
                       placeholder="Table"
+                      value={form.table}
+                      onChange={(e) => {
+                        setForm((prev) => ({ ...prev, table: e.target.value }));
+                      }}
                     />
                   </div>
                   <div className="grid gap-2">
@@ -355,6 +589,13 @@ export function QuickConfigPage() {
                       className="base-input"
                       id={`fw-mark-${id}`}
                       placeholder="FwMark"
+                      value={form.fwMark}
+                      onChange={(e) => {
+                        setForm((prev) => ({
+                          ...prev,
+                          fwMark: e.target.value,
+                        }));
+                      }}
                     />
                   </div>
                 </div>
@@ -370,14 +611,19 @@ export function QuickConfigPage() {
             </Button>
           </CardContent>
           <CardFooter className="justify-end">
-            <Button className="mr-2" variant="outline" size="sm">
+            <Button
+              className="mr-2"
+              variant="outline"
+              size="sm"
+              onClick={resetForm}
+            >
               Reset
             </Button>
             <Button
               className="mr-2"
               variant="destructive"
               size="sm"
-              disabled={!confList.length}
+              disabled={!peerConfList.length}
               onClick={downloadZip}
             >
               Download zip
@@ -388,8 +634,8 @@ export function QuickConfigPage() {
           </CardFooter>
         </Card>
         <div className="flex w-full max-w-3xl flex-col gap-2">
-          {confList.map((config, index) => (
-            <PeerCard key={index} title={`peer${index}`} content={config} />
+          {peerConfList.map((config, index) => (
+            <PeerCard key={index} title={`wg${index}`} conf={config} />
           ))}
         </div>
       </div>
