@@ -9,12 +9,12 @@ import {
 import { Button } from '@/components/ui/button.tsx';
 import { Label } from '@/components/ui/label.tsx';
 import { Input } from '@/components/ui/input.tsx';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { BaseLayout } from '@/layouts/base.tsx';
 import { GITHUB_REPO } from '@/constants/link';
 import { createZipAndDownload, getRandomPort } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
-import { PeerCard } from '@/components/peerCard';
+import { PeerCard, PeerCardRef } from '@/components/peerCard';
 import {
   Select,
   SelectContent,
@@ -27,7 +27,6 @@ import { isIP } from 'is-ip';
 import isCIDR from 'is-cidr';
 import { Textarea } from '@/components/ui/textarea';
 import { batchIncrementIP, getCidrAddress } from '@/lib/ip';
-import { generateWgConf } from '@/lib/wg';
 
 export interface PeerSection {
   publicKey: string;
@@ -81,6 +80,7 @@ const defaultForm: ConfigForm = {
 export function QuickConfigPage() {
   const id = useId();
   const { toast } = useToast();
+  const peerRefs = useRef<(PeerCardRef | null)[]>([]);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [form, setForm] = useState<ConfigForm>(defaultForm);
@@ -252,12 +252,7 @@ export function QuickConfigPage() {
 
   const downloadZip = () => {
     createZipAndDownload(
-      peerConfList.map((config, index) => {
-        return {
-          name: `wg${index}.conf`,
-          content: generateWgConf(config),
-        };
-      }),
+      peerRefs.current.map((ref) => ref!.getConf()),
       'wg_conf.zip',
     ).catch((err) => {
       console.error(err);
@@ -635,7 +630,12 @@ export function QuickConfigPage() {
         </Card>
         <div className="flex w-full max-w-3xl flex-col gap-2">
           {peerConfList.map((config, index) => (
-            <PeerCard key={index} title={`wg${index}`} conf={config} />
+            <PeerCard
+              key={index}
+              ref={(el) => (peerRefs.current[index] = el)}
+              title={`wg${index}`}
+              conf={config}
+            />
           ))}
         </div>
       </div>
