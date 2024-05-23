@@ -1,13 +1,11 @@
-import { useState } from 'react';
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { CheckIcon, ClipboardIcon } from 'lucide-react';
-import { useToast } from './ui/use-toast';
+import { useCopyContent } from '@/hooks/copy';
 
 export function KeyItem({
   label,
@@ -16,27 +14,7 @@ export function KeyItem({
   label: string;
   content: string;
 }) {
-  const { toast } = useToast();
-  const [hasCopied, setHasCopied] = useState(false);
-
-  const copyContent = () => {
-    navigator.clipboard
-      .writeText(content)
-      .then(() => {
-        setHasCopied(true);
-        setTimeout(() => {
-          setHasCopied(false);
-        }, 1000);
-      })
-      .catch((err) => {
-        console.error(err);
-        toast({
-          title: 'Copy Error!',
-          description: 'Could not copy text.',
-          variant: 'destructive',
-        });
-      });
-  };
+  const { hasCopied, copyContent } = useCopyContent();
 
   return (
     <div>
@@ -49,27 +27,25 @@ export function KeyItem({
             <span>{content}</span>
           </code>
         </pre>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                onClick={copyContent}
-                variant="ghost"
-                size="icon"
-                className="absolute right-2 ml-auto h-6 w-6 text-slate-100 hover:bg-slate-700 hover:text-slate-100"
-              >
-                {hasCopied ? (
-                  <CheckIcon size={16} />
-                ) : (
-                  <ClipboardIcon size={16} />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Copy Content</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={() => copyContent(content)}
+              variant="ghost"
+              size="icon"
+              className="absolute right-2 ml-auto h-6 w-6 text-slate-100 hover:bg-slate-700 hover:text-slate-100"
+            >
+              {hasCopied ? (
+                <CheckIcon size={16} />
+              ) : (
+                <ClipboardIcon size={16} />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{hasCopied ? 'Copied!' : 'Copy Content'}</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );

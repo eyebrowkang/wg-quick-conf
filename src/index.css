@@ -77,7 +77,7 @@
 
 /* FIXME: 自定义类名的样式会被shadcn/ui的样式覆盖，这里使用 !important 解决，或许有更好的解决方案 */
 .base-input {
-  @apply focus-visible:ring-inset focus-visible:ring-blue-400 focus-visible:ring-offset-0 max-md:text-base !important;
+  @apply focus-visible:ring-inset focus-visible:ring-blue-400 focus-visible:ring-offset-0 max-md:text-base whitespace-pre overflow-auto !important;
 }
 
 .base-select {

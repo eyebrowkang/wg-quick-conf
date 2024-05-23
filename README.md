@@ -58,13 +58,13 @@ pnpm install
 pnpm dev
 ```
 
-# 许可证 (License)
+## 许可证 (License)
 
 该项目基于 MIT 许可证发布。有关详细信息，请参阅 [LICENSE](./LICENSE) 文件。
 
 This project is licensed under the MIT License. For more details, please refer to the [LICENSE](./LICENSE) file.
 
-# 参考资料 (References)
+## 参考资料 (References)
 
 - https://man.archlinux.org/man/wg.8.en
 - https://man.archlinux.org/man/wg-quick.8.en
