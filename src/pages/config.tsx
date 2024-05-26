@@ -155,14 +155,20 @@ export function QuickConfigPage() {
       setFormErr((prev) => ({ ...prev, endpoint: 'Endpoint is required' }));
       return false;
     }
-    const endpoint = form.endpoint.split(':');
-    if (endpoint.length > 2) {
-      setFormErr((prev) => ({ ...prev, endpoint: 'Invalid endpoint' }));
-      return false;
+    const endpoints: string[] = [];
+    for (const endpoint of form.endpoint.split(',')) {
+      const list = endpoint.split(':');
+
+      if (list.length > 2) {
+        setFormErr((prev) => ({ ...prev, endpoint: 'Invalid endpoint' }));
+        return false;
+      }
+
+      endpoints.push(
+        list.length === 1 ? `${list[0].trim()}:${form.listenPort}` : endpoint,
+      );
     }
-    if (endpoint.length === 1) {
-      form.endpoint = `${endpoint[0].trim()}:${form.listenPort}`;
-    }
+    form.endpoint = endpoints.join(',');
     // >> persistentKeepalive <<
     if (
       form.persistentKeepalive &&
@@ -205,47 +211,55 @@ export function QuickConfigPage() {
       }
     }
 
+    const endpoints = form.endpoint!.split(',').map((e) => e.trim());
     const wgConfList: WireGuardConfig[] = [];
     for (let j = 0; j < form.quantity; j++) {
-      let wgConf: WireGuardConfig;
-      if (j === 0) {
-        wgConf = {
-          privateKey: keyPairList[0][0],
-          address: addressList[0],
-          listenPort: form.listenPort,
-          dns: form.dns,
-          mtu: form.mtu,
-          saveConfig: form.saveConfig,
-          preUp: form.preUp,
-          postUp: form.postUp,
-          preDown: form.preDown,
-          postDown: form.postDown,
-          table: form.table,
-          fwMark: form.fwMark,
-          peers: keyPairList.slice(1).map(([_, publicKey], index) => ({
-            publicKey,
-            allowedIPs: getCidrAddress(addressList[index + 1]),
-          })),
-        };
+      const wgConf: Partial<WireGuardConfig> = {
+        privateKey: keyPairList[j][0],
+        address: addressList[j],
+        dns: form.dns,
+        mtu: form.mtu,
+      };
+
+      if (endpoints[j]) {
+        wgConf.listenPort = Number(endpoints[j].split(':')[1]);
+        wgConf.saveConfig = form.saveConfig;
+        wgConf.preUp = form.preUp;
+        wgConf.postUp = form.postUp;
+        wgConf.preDown = form.preDown;
+        wgConf.postDown = form.postDown;
+        wgConf.table = form.table;
+        wgConf.fwMark = form.fwMark;
+        wgConf.peers = keyPairList
+          .map(([_, publicKey], index) => {
+            if (index === j) return null;
+
+            const peer: PeerSection = {
+              publicKey,
+              allowedIPs: getCidrAddress(addressList[index]),
+            };
+            if (endpoints[index]) peer.endpoint = endpoints[index];
+
+            return peer;
+          })
+          .filter(Boolean) as PeerSection[];
       } else {
-        wgConf = {
-          privateKey: keyPairList[j][0],
-          address: addressList[j],
-          dns: form.dns,
-          mtu: form.mtu,
-          peers: keyPairList.slice(0, 1).map(([_, publicKey]) => {
+        wgConf.peers = keyPairList
+          .map(([_, publicKey], index) => {
+            if (index === j || !endpoints[index]) return null;
+
             return {
               publicKey,
               allowedIPs: form.allowedIPs ?? '',
-              endpoint: form.endpoint,
+              endpoint: endpoints[index],
               persistentKeepalive: form.persistentKeepalive,
               reserved: form.reserved,
             };
-          }),
-        };
+          })
+          .filter(Boolean) as PeerSection[];
       }
 
-      wgConfList.push(wgConf);
+      wgConfList.push(wgConf as WireGuardConfig);
     }
     setPeerConfList(wgConfList);
   };
