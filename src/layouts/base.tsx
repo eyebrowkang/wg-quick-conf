@@ -15,7 +15,7 @@ export function BaseLayout({ children }: { children: React.ReactNode }) {
         <Link href="/">
           <img
             className="text-black"
-            src="/wg.svg"
+            src="/wg.png"
             alt="website logo"
             width={40}
           />
