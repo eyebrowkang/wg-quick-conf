@@ -190,7 +190,7 @@ export const PeerCard = forwardRef<PeerCardRef, PeerCardProps>(
                 </Button>
                 <Textarea
                   rows={transformedText.split('\n').length + 1}
-                  className="base-input font-mono"
+                  className="font-mono"
                   value={transformedText}
                   readOnly
                 ></Textarea>

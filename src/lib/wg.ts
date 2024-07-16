@@ -110,7 +110,11 @@ export function parseToWgConf(text: string): WireGuardConfig {
       continue;
     }
 
-    const [key, value] = line.split('=').map((part) => part.trim());
+    const firstEqualIndex = line.indexOf('=');
+    if (firstEqualIndex === -1 || firstEqualIndex === line.length - 1) continue;
+
+    const key = line.slice(0, firstEqualIndex).trim();
+    const value = line.slice(firstEqualIndex + 1).trim();
 
     if (currentPeer) {
       // Peer section
